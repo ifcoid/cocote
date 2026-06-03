@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "cocote": {
+      "command": "c:\\Users\\Rolly Maulana Awangg\\Documents\\if\\cocote\\cocote.exe",
+      "args": [],
+      "env": {}
+    }
+  }
+}

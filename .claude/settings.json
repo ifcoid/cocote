@@ -1,0 +1,14 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"c:\\Users\\Rolly Maulana Awangg\\Documents\\if\\cocote\\cocote.exe\" mirror"
+          }
+        ]
+      }
+    ]
+  }
+}
