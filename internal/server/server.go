@@ -110,7 +110,8 @@ func (s *Server) handleNotify(ctx context.Context, _ *mcp.CallToolRequest, in No
 // AskApprovalInput is the argument schema for ask_approval.
 type AskApprovalInput struct {
 	Question       string   `json:"question" jsonschema:"The question or action that requires the user's approval"`
-	Options        []string `json:"options,omitempty" jsonschema:"Button labels to offer. Defaults to [Approve, Deny]"`
+	Options        []string `json:"options,omitempty" jsonschema:"Custom button labels to offer, in order. Defaults to [Approve, Deny]"`
+	Columns        int      `json:"columns,omitempty" jsonschema:"How many buttons per row in the inline keyboard. Default 2; use 1 for long labels"`
 	TimeoutSeconds int      `json:"timeout_seconds,omitempty" jsonschema:"Seconds to wait for a tap before timing out. Default 300"`
 }
 
@@ -134,15 +135,27 @@ func (s *Server) handleAskApproval(ctx context.Context, _ *mcp.CallToolRequest, 
 		options = []string{"Approve", "Deny"}
 	}
 
-	reqID := s.nextID("ask")
-	row := make([]telegram.InlineKeyboardButton, 0, len(options))
-	for i, opt := range options {
-		row = append(row, telegram.InlineKeyboardButton{
-			Text:         opt,
-			CallbackData: fmt.Sprintf("%s:%d", reqID, i),
-		})
+	columns := in.Columns
+	if columns <= 0 {
+		columns = 2
 	}
-	markup := &telegram.InlineKeyboardMarkup{InlineKeyboard: [][]telegram.InlineKeyboardButton{row}}
+	reqID := s.nextID("ask")
+	var rows [][]telegram.InlineKeyboardButton
+	for i := 0; i < len(options); i += columns {
+		end := i + columns
+		if end > len(options) {
+			end = len(options)
+		}
+		row := make([]telegram.InlineKeyboardButton, 0, end-i)
+		for j := i; j < end; j++ {
+			row = append(row, telegram.InlineKeyboardButton{
+				Text:         options[j],
+				CallbackData: fmt.Sprintf("%s:%d", reqID, j),
+			})
+		}
+		rows = append(rows, row)
+	}
+	markup := &telegram.InlineKeyboardMarkup{InlineKeyboard: rows}
 
 	ch := s.disp.RegisterCallback(reqID)
 	defer s.disp.UnregisterCallback(reqID)

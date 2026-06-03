@@ -22,7 +22,7 @@ Sesi Claude Code B ──(stdio)── cocote [send-only]  ──sendMessage─�
 | Tool | Butuh booking? | Fungsi |
 |------|----------------|--------|
 | `notify` | tidak (send-only ok) | Kirim progress / notifikasi selesai. Field: `message`, `level` (info/success/warning/error). |
-| `ask_approval` | ya | Minta approval lewat tombol inline yang bisa di-tap; blok sampai dipilih atau timeout. Field: `question`, `options[]`, `timeout_seconds`. |
+| `ask_approval` | ya | Minta approval lewat tombol inline yang bisa di-tap; blok sampai dipilih atau timeout. Field: `question`, `options[]` (label tombol custom), `columns` (tombol per baris, default 2), `timeout_seconds`. |
 | `wait_for_reply` | ya | Tanya bebas, tunggu balasan teks user. Field: `prompt`, `timeout_seconds`. |
 | `mirror_screen` | tidak (send-only ok) | "Clone tampilan" — mirror layar/output Claude Code, meng-edit satu pesan di tempat agar terasa live. Field: `content`, `title`, `new`. |
 
@@ -78,7 +78,22 @@ Hook-nya sudah terdaftar di [.claude/settings.json](.claude/settings.json) (scop
 
 Sesuaikan `<path>` ke lokasi biner hasil build. Saat pertama kali jalan, Claude Code akan meminta persetujuan menjalankan hook project ini. Id pesan mirror disimpan per sesi di `mirror-<session>.id` dalam `COCOTE_LEASE_DIR`.
 
-> Mulai dari `Stop` saja agar tidak berisik (satu update ringkas tiap giliran). Kalau mau lebih detail, bisa ditambah hook `PostToolUse`.
+### Mirror per-tool (hook `PostToolUse`)
+
+Untuk detail lebih dalam, ada subcommand `cocote tool` yang dipasang ke hook **`PostToolUse`**: tiap kali sebuah tool selesai dijalankan, ia mengirim satu baris ringkas ke Telegram, mis. `🔧 Bash · <session>` + perintahnya, atau `🔧 Edit · <session>` + path file. Indikator `❌` ditambahkan kalau tool-nya error.
+
+Hook ini juga sudah terdaftar di [.claude/settings.json](.claude/settings.json) dengan `matcher` dibatasi ke tool yang berdampak (`Bash|Edit|Write|MultiEdit|NotebookEdit`) supaya tidak terlalu berisik:
+
+```json
+"PostToolUse": [
+  {
+    "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+    "hooks": [ { "type": "command", "command": "\"<path>\\cocote.exe\" tool" } ]
+  }
+]
+```
+
+Lebarkan `matcher` (mis. `.*` untuk semua tool) kalau mau mirror lebih lengkap, atau hapus entri ini kalau hanya butuh ringkasan `Stop`.
 
 ## Konfigurasi
 
@@ -100,7 +115,7 @@ internal/config/            loader env + .env
 internal/booking/           lease lock + heartbeat (mekanisme booking)
 internal/telegram/          klien Bot API, dispatcher, long-poller
 internal/server/            wiring MCP tools (notify, ask_approval, wait_for_reply, mirror_screen)
-internal/hook/              subcommand `cocote mirror` untuk hook Stop (auto-mirror)
+internal/hook/              subcommand `cocote mirror` (hook Stop) & `cocote tool` (hook PostToolUse)
 ```
 
 ## Test

@@ -9,6 +9,17 @@
           }
         ]
       }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"c:\\Users\\Rolly Maulana Awangg\\Documents\\if\\cocote\\cocote.exe\" tool"
+          }
+        ]
+      }
     ]
   }
 }

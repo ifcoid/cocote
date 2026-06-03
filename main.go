@@ -32,16 +32,21 @@ import (
 const version = "0.1.0"
 
 func main() {
-	// `cocote mirror` is the Claude Code Stop-hook entrypoint: it reads the
-	// hook payload from stdin and mirrors the latest assistant turn to
-	// Telegram. It must never block the session, so it always exits 0.
-	if len(os.Args) > 1 && os.Args[1] == "mirror" {
+	// Hook entrypoints, invoked by Claude Code with the hook payload on stdin:
+	//   cocote mirror  → Stop hook: mirror the latest assistant turn (edit in place)
+	//   cocote tool    → PostToolUse hook: post a concise per-tool activity line
+	// Both are send-only and must never block the session, so they always exit 0.
+	if len(os.Args) > 1 && (os.Args[1] == "mirror" || os.Args[1] == "tool") {
 		cfg, err := config.Load()
 		if err != nil {
-			fmt.Fprintln(os.Stderr, "cocote mirror:", err)
+			fmt.Fprintln(os.Stderr, "cocote "+os.Args[1]+":", err)
 			return
 		}
-		hook.RunMirror(cfg, os.Stdin)
+		if os.Args[1] == "tool" {
+			hook.RunToolMirror(cfg, os.Stdin)
+		} else {
+			hook.RunMirror(cfg, os.Stdin)
+		}
 		return
 	}
 
