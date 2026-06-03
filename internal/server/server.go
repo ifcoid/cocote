@@ -64,7 +64,7 @@ func (s *Server) Register(m *mcp.Server) {
 
 	mcp.AddTool(m, &mcp.Tool{
 		Name:        "ask_approval",
-		Description: "Ask the user to approve an action via tappable Telegram buttons and block until they choose or it times out. Requires this session to hold the cocote booking.",
+		Description: "Ask the user to approve an action via tappable Telegram buttons and block until they choose or it times out. Set allow_freetext to also offer a 'reply with text' button so the user can talk back with custom instructions instead of just picking an option (the reply is returned in the 'reply' field). Requires this session to hold the cocote booking.",
 	}, s.handleAskApproval)
 
 	mcp.AddTool(m, &mcp.Tool{
@@ -112,15 +112,22 @@ type AskApprovalInput struct {
 	Question       string   `json:"question" jsonschema:"The question or action that requires the user's approval"`
 	Options        []string `json:"options,omitempty" jsonschema:"Custom button labels to offer, in order. Defaults to [Approve, Deny]"`
 	Columns        int      `json:"columns,omitempty" jsonschema:"How many buttons per row in the inline keyboard. Default 2; use 1 for long labels"`
-	TimeoutSeconds int      `json:"timeout_seconds,omitempty" jsonschema:"Seconds to wait for a tap before timing out. Default 300"`
+	AllowFreetext  bool     `json:"allow_freetext,omitempty" jsonschema:"Add a button that lets the user reply with free text (talk back) instead of choosing an option"`
+	FreetextLabel  string   `json:"freetext_label,omitempty" jsonschema:"Label for the free-text button (setting it implies allow_freetext). Default is a pencil 'reply with text' label"`
+	TimeoutSeconds int      `json:"timeout_seconds,omitempty" jsonschema:"Seconds to wait for a response before timing out. Default 300"`
 }
 
 // AskApprovalOutput is the result of ask_approval.
 type AskApprovalOutput struct {
-	Choice   string `json:"choice"`
-	Approved bool   `json:"approved"`
+	Choice   string `json:"choice"`          // label of the tapped option (empty if the user replied with text)
+	Approved bool   `json:"approved"`        // true if the chosen option looks like an approval
+	Freetext bool   `json:"freetext"`        // true if the user chose to reply with free text
+	Reply    string `json:"reply,omitempty"` // the free-text reply, when Freetext is true
 	TimedOut bool   `json:"timed_out"`
 }
+
+// freetextValue is the callback_data marker for the "reply with text" button.
+const freetextValue = "ft"
 
 func (s *Server) handleAskApproval(ctx context.Context, _ *mcp.CallToolRequest, in AskApprovalInput) (*mcp.CallToolResult, AskApprovalOutput, error) {
 	if !s.interactive() {
@@ -155,6 +162,18 @@ func (s *Server) handleAskApproval(ctx context.Context, _ *mcp.CallToolRequest, 
 		}
 		rows = append(rows, row)
 	}
+	// Optional "reply with text" (talk back) button on its own row.
+	allowFreetext := in.AllowFreetext || strings.TrimSpace(in.FreetextLabel) != ""
+	if allowFreetext {
+		label := strings.TrimSpace(in.FreetextLabel)
+		if label == "" {
+			label = "✍️ Reply with text…"
+		}
+		rows = append(rows, []telegram.InlineKeyboardButton{{
+			Text:         label,
+			CallbackData: fmt.Sprintf("%s:%s", reqID, freetextValue),
+		}})
+	}
 	markup := &telegram.InlineKeyboardMarkup{InlineKeyboard: rows}
 
 	ch := s.disp.RegisterCallback(reqID)
@@ -166,15 +185,21 @@ func (s *Server) handleAskApproval(ctx context.Context, _ *mcp.CallToolRequest, 
 		return nil, AskApprovalOutput{}, fmt.Errorf("send approval request: %w", err)
 	}
 
+	// A single deadline governs both the tap and any follow-up free-text reply.
+	deadline := time.Now().Add(timeout(in.TimeoutSeconds))
+
 	select {
 	case <-ctx.Done():
 		return nil, AskApprovalOutput{}, ctx.Err()
 
-	case <-time.After(timeout(in.TimeoutSeconds)):
+	case <-time.After(time.Until(deadline)):
 		_ = s.tg.EditMessageText(context.Background(), msgID, base+"\n\n⏱️ <i>timed out</i>", "HTML", nil)
 		return nil, AskApprovalOutput{TimedOut: true}, nil
 
 	case ev := <-ch:
+		if ev.Value == freetextValue {
+			return s.awaitFreetextReply(ctx, msgID, base, ev.CallbackID, deadline)
+		}
 		idx, _ := strconv.Atoi(ev.Value)
 		choice := ""
 		if idx >= 0 && idx < len(options) {
@@ -185,6 +210,31 @@ func (s *Server) handleAskApproval(ctx context.Context, _ *mcp.CallToolRequest, 
 		_ = s.tg.AnswerCallbackQuery(context.Background(), ev.CallbackID, "✓ "+choice)
 		_ = s.tg.EditMessageText(context.Background(), msgID, base+fmt.Sprintf("\n\n✅ <b>%s</b>", html.EscapeString(choice)), "HTML", nil)
 		return nil, AskApprovalOutput{Choice: choice, Approved: isApprove(choice)}, nil
+	}
+}
+
+// awaitFreetextReply handles the case where the user tapped the "reply with
+// text" button: it prompts for and waits on the next text message until the
+// shared deadline.
+func (s *Server) awaitFreetextReply(ctx context.Context, msgID int, base, callbackID string, deadline time.Time) (*mcp.CallToolResult, AskApprovalOutput, error) {
+	_ = s.tg.AnswerCallbackQuery(context.Background(), callbackID, "Type your reply in the chat…")
+	_ = s.tg.EditMessageText(context.Background(), msgID, base+"\n\n✍️ <i>waiting for your text reply…</i>", "HTML", nil)
+
+	replyCh := s.disp.RegisterReply()
+	select {
+	case <-ctx.Done():
+		s.disp.UnregisterReply(replyCh)
+		return nil, AskApprovalOutput{}, ctx.Err()
+
+	case <-time.After(time.Until(deadline)):
+		s.disp.UnregisterReply(replyCh)
+		_ = s.tg.EditMessageText(context.Background(), msgID, base+"\n\n⏱️ <i>timed out</i>", "HTML", nil)
+		return nil, AskApprovalOutput{Freetext: true, TimedOut: true}, nil
+
+	case reply := <-replyCh:
+		_ = s.tg.EditMessageText(context.Background(), msgID,
+			base+fmt.Sprintf("\n\n✍️ <b>Reply:</b> %s", html.EscapeString(reply)), "HTML", nil)
+		return nil, AskApprovalOutput{Freetext: true, Reply: reply}, nil
 	}
 }
 

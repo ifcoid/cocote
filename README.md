@@ -22,7 +22,7 @@ Sesi Claude Code B ──(stdio)── cocote [send-only]  ──sendMessage─�
 | Tool | Butuh booking? | Fungsi |
 |------|----------------|--------|
 | `notify` | tidak (send-only ok) | Kirim progress / notifikasi selesai. Field: `message`, `level` (info/success/warning/error). |
-| `ask_approval` | ya | Minta approval lewat tombol inline yang bisa di-tap; blok sampai dipilih atau timeout. Field: `question`, `options[]` (label tombol custom), `columns` (tombol per baris, default 2), `timeout_seconds`. |
+| `ask_approval` | ya | Minta approval lewat tombol inline yang bisa di-tap; blok sampai dipilih atau timeout. Field: `question`, `options[]` (label tombol custom), `columns` (tombol per baris, default 2), `allow_freetext` / `freetext_label` (tombol "tanya balik" → user mengetik balasan bebas, hasilnya di field `reply`), `timeout_seconds`. |
 | `wait_for_reply` | ya | Tanya bebas, tunggu balasan teks user. Field: `prompt`, `timeout_seconds`. |
 | `mirror_screen` | tidak (send-only ok) | "Clone tampilan" — mirror layar/output Claude Code, meng-edit satu pesan di tempat agar terasa live. Field: `content`, `title`, `new`. |
 
